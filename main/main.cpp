@@ -3,16 +3,18 @@
 #include "LSM6DSV16XSensor.h"
 #include <string>
 #include "base64_encode.hpp"
-// #include "driver/gpio.h"
 
-#define FIFO_SAMPLE_THRESHOLD 30
+#define FIFO_SAMPLE_THRESHOLD 200
 #define FLASH_BUFF_LEN 8192
-// We can just barely keep up, with PERF, at 1MHz i2c.
-#define SENSOR_ODR 1900.0f
+// We can't quite keep up with 1920, with PERF and 1MHz i2c.
+// Actually, we can just barely keep up, if we don't print out the data.
+// If we send the raw data to the other processor for output to WiFi,
+// we can likely keep up with 1920 samples/sec.
+#define SENSOR_ODR 1920
 
-uint16_t loop(LSM6DSV16XSensor &lsm);
 uint16_t Read_FIFO_Data(LSM6DSV16XSensor &lsm);
-uint16_t read7(LSM6DSV16XSensor &lsm);
+uint16_t read_until_empty(LSM6DSV16XSensor &lsm);
+uint16_t read_until_empty_7(LSM6DSV16XSensor &lsm);
 
 extern "C" void app_main()
 {
@@ -62,31 +64,26 @@ extern "C" void app_main()
 
     int led = HIGH;
 
-    int n = 2 * 1920;
+    int n = 2 * SENSOR_ODR;
     uint64_t gap_start = esp_timer_get_time();
     while (1)
     {
-        Read_FIFO_Data(LSM);
-        continue;
-
-        uint16_t records;
-        if (LSM.FIFO_Get_Num_Samples(&records) != LSM6DSV16X_OK)
+        // Wait until there are FIFO_SAMPLE_THRESHOLD records in the FIFO.
+        uint16_t records = 0;
+        for (status = LSM.FIFO_Get_Num_Samples(&records);
+             (status == LSM6DSV16X_OK) && (records < FIFO_SAMPLE_THRESHOLD);
+             status = LSM.FIFO_Get_Num_Samples(&records))
         {
-            printf("LSM6DSV16X Sensor failed to get number of samples inside FIFO");
-            while (1)
-                ;
         }
-
-        if (records < FIFO_SAMPLE_THRESHOLD)
+        int64_t gap_end = esp_timer_get_time();
+        // uint16_t actual = Read_FIFO_Data(LSM);
+        uint16_t actual = read_until_empty(LSM);
+        if (actual == 0)
         {
             continue;
         }
-
-        // When records >= FIFO_SAMPLE_THRESHOLD, we can read the FIFO data
-        int64_t gap_end = esp_timer_get_time();
         printf("Gap was %lld\n", gap_end - gap_start);
 
-        uint16_t actual = read7(LSM);
         gap_start = esp_timer_get_time();
         n -= actual;
         if (n > 0)
@@ -96,7 +93,7 @@ extern "C" void app_main()
         led = !led;
         digitalWrite(13, led);
         printf("%6lld  1920 samples ****************************************\n", esp_timer_get_time() / 1000);
-        n += 2 * 1920;
+        n += 2 * SENSOR_ODR;
     }
 }
 
@@ -115,21 +112,64 @@ struct TagData
     int16_t data[3];
 };
 
-uint encode(const uint8_t *input, uint input_length, uint8_t *output)
+int read_record(LSM6DSV16XSensor &lsm, int16_t *output)
 {
-    return encode_base64(input, input_length, output);
+    lsm6dsv16x_axis3bit16_t data_raw;
+    if (lsm.FIFO_Get_Data(data_raw.u8bit) != LSM6DSV16X_OK)
+    {
+        return LSM6DSV16X_ERROR;
+    }
+    output[0] = data_raw.i16bit[0];
+    output[1] = data_raw.i16bit[1];
+    output[2] = data_raw.i16bit[2];
+    return LSM6DSV16X_OK;
 }
-
 // Read 7 bytes of data from FIFO until it is empty.
-uint16_t read7(LSM6DSV16XSensor &lsm)
+uint16_t read_until_empty_7(LSM6DSV16XSensor &lsm)
 {
-    TagData one_record;
-    int16_t acc_gyr[6] = {0};
+    int16_t gyr_acc[6] = {0};
 
     int acc = 0;
     int gyr = 0;
 
-    uint16_t status = lsm.FIFO_Get_Tag_And_Data((uint8_t *)&one_record);
+    TagData tag_data = {0, 0, 0, 0};
+    int status;
+    uint8_t last = 0;
+    uint64_t start = esp_timer_get_time();
+    // It seems that reading the Tag as part of a i2c block read does not behave properly.
+    for (status = lsm.FIFO_Get_Tag_And_Data((uint8_t *)&tag_data);
+         (status == LSM6DSV16X_OK) && (tag_data.tag.tag > 0);
+         lsm.FIFO_Get_Tag_And_Data((uint8_t *)&tag_data))
+    {
+        switch (tag_data.tag.tag)
+        {
+        case 1:
+            gyr_acc[0] = tag_data.data[0];
+            gyr_acc[1] = tag_data.data[1];
+            gyr_acc[2] = tag_data.data[2];
+            gyr++;
+            last = 1;
+            break;
+        case 2:
+            gyr_acc[3] = tag_data.data[0];
+            gyr_acc[4] = tag_data.data[1];
+            gyr_acc[5] = tag_data.data[2];
+            acc++;
+            last = 2;
+            uint8_t output[16];
+            // Somehow, this is corrupting the low order byte of gyr_acc[0]!!!
+            // encode_base64((unsigned char *)gyr_acc, 12, output);
+            if (acc % 10 == 0)
+            {
+                printf("FIFO (%2d)  gyr: %6d %6d %6d   acc: %6d %6d %6d  ", acc, gyr_acc[0], gyr_acc[1], gyr_acc[2], gyr_acc[3], gyr_acc[4], gyr_acc[5]);
+                printf("\n");
+                // printf("  %s\n", output);
+            }
+            break;
+        default:
+            break;
+        }
+    }
     if (status != LSM6DSV16X_OK)
     {
         printf("LSM6DSV16X Sensor failed to get tag and data\n");
@@ -137,46 +177,61 @@ uint16_t read7(LSM6DSV16XSensor &lsm)
             ;
     }
 
-    uint64_t start = esp_timer_get_time();
-    uint8_t last = 0;
+    uint64_t end = esp_timer_get_time();
 
-    while (one_record.tag.tag != 0)
+    printf("Time taken: %lld for %d + %d (%d)  ", end - start, acc, gyr, last);
+    return acc + gyr;
+}
+
+// Read tag + 6 bytes of data from FIFO until it is empty.
+uint16_t read_until_empty(LSM6DSV16XSensor &lsm)
+{
+    int16_t gyr_acc[6] = {0};
+
+    int acc = 0;
+    int gyr = 0;
+
+    uint8_t tag = 0;
+    int status;
+    uint8_t last = 0;
+    uint64_t start = esp_timer_get_time();
+    // It seems that reading the Tag as part of a i2c block read does not behave properly.
+    for (status = lsm.FIFO_Get_Tag(&tag); (status == LSM6DSV16X_OK) && (tag > 0); lsm.FIFO_Get_Tag(&tag))
     {
-        last = one_record.tag.tag;
-        switch (last)
+        switch (tag)
         {
         case 1:
-            memcpy(&acc_gyr[0], one_record.data, 6);
+            read_record(lsm, &gyr_acc[0]);
             gyr++;
+            last = 1;
             break;
         case 2:
-            memcpy(&acc_gyr[3], one_record.data, 6);
-            uint8_t output[12];
-            encode_base64((uint8_t *)acc_gyr, 12, output);
-            // printf("%s\n", output);
-            if (acc % 10 == 0)
-            {
-                printf("FIFO   gyr: %6d %6d %6d   acc: %6d %6d %6d\n", acc_gyr[0], acc_gyr[1], acc_gyr[2], acc_gyr[3], acc_gyr[4], acc_gyr[5]);
-                int16_t acc[3];
-                int16_t gyr[3];
-                lsm.Get_G_AxesRaw(gyr);
-                lsm.Get_X_AxesRaw(acc);
-                printf("DIRECT gyr: %6d %6d %6d   acc: %6d %6d %6d\n", gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
-            }
+            read_record(lsm, &gyr_acc[3]);
             acc++;
+            last = 2;
+            uint8_t output[16];
+            // Somehow, this is corrupting the low order byte of gyr_acc[0]!!!
+            encode_base64((unsigned char *)gyr_acc, 12, output);
+            if (acc % 100 == 0)
+            {
+                // printf("FIFO (%2d)  gyr: %6d %6d %6d   acc: %6d %6d %6d  ", acc, gyr_acc[0], gyr_acc[1], gyr_acc[2], gyr_acc[3], gyr_acc[4], gyr_acc[5]);
+                //  printf("\n");
+                printf("%s\n", output);
+            }
             break;
         default:
             break;
         }
-        status = lsm.FIFO_Get_Tag_And_Data((uint8_t *)&one_record);
-        if (status != LSM6DSV16X_OK)
-        {
-            printf("LSM6DSV16X Sensor failed to get tag and data\n");
-            while (1)
-                ;
-        }
     }
+    if (status != LSM6DSV16X_OK)
+    {
+        printf("LSM6DSV16X Sensor failed to get tag and data\n");
+        while (1)
+            ;
+    }
+
     uint64_t end = esp_timer_get_time();
+
     printf("Time taken: %lld for %d + %d (%d)  ", end - start, acc, gyr, last);
     return acc + gyr;
 }
