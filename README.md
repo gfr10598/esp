@@ -1,6 +1,10 @@
 # esp
 Esp-idf related code
 
+# TODO
+* Get minimal arduino dependency set.
+* Get this working without hacks to arduino code.
+
 # _Sample project_
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
