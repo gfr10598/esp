@@ -66,6 +66,9 @@ extern "C" void app_main()
     uint64_t gap_start = esp_timer_get_time();
     while (1)
     {
+        Read_FIFO_Data(LSM);
+        continue;
+
         uint16_t records;
         if (LSM.FIFO_Get_Num_Samples(&records) != LSM6DSV16X_OK)
         {
@@ -151,9 +154,14 @@ uint16_t read7(LSM6DSV16XSensor &lsm)
             uint8_t output[12];
             encode_base64((uint8_t *)acc_gyr, 12, output);
             // printf("%s\n", output);
-            if (acc % 4 == 0)
+            if (acc % 10 == 0)
             {
-                // printf("gyr: %6d %6d %6d   acc: %6d %6d %6d\n", acc_gyr[0], acc_gyr[1], acc_gyr[2], acc_gyr[3], acc_gyr[4], acc_gyr[5]);
+                printf("FIFO   gyr: %6d %6d %6d   acc: %6d %6d %6d\n", acc_gyr[0], acc_gyr[1], acc_gyr[2], acc_gyr[3], acc_gyr[4], acc_gyr[5]);
+                int16_t acc[3];
+                int16_t gyr[3];
+                lsm.Get_G_AxesRaw(gyr);
+                lsm.Get_X_AxesRaw(acc);
+                printf("DIRECT gyr: %6d %6d %6d   acc: %6d %6d %6d\n", gyr[0], gyr[1], gyr[2], acc[0], acc[1], acc[2]);
             }
             acc++;
             break;
@@ -177,8 +185,8 @@ uint16_t Read_FIFO_Data(LSM6DSV16XSensor &lsm)
 {
     uint16_t i;
     uint16_t samples_to_read;
-    int32_t acc_value[3];
-    int32_t gyr_value[3];
+    int32_t acc_value[3] = {0};
+    int32_t gyr_value[3] = {0};
     int count = 0;
 
     // Check the number of samples inside FIFO
@@ -209,6 +217,7 @@ uint16_t Read_FIFO_Data(LSM6DSV16XSensor &lsm)
     // Each record has to move about 15 bytes, and should take about 2.5usec * 8 * 15 = 300 usec at 400kHz.
     // ***** This means our max throughput would be about 3k records per second, or about 1500 sample/sec. *****
     // But they currently take about 610 usec (DEBUG) or about 570usec (PERF).
+    int acc_count = 0;
     for (i = 0; i < samples_to_read; i++)
     {
         // int64_t start = esp_timer_get_time();
@@ -253,6 +262,9 @@ uint16_t Read_FIFO_Data(LSM6DSV16XSensor &lsm)
                     ;
             }
             acc_available = true;
+            acc_count++;
+            if (acc_count % 10 == 0)
+                printf("FIFO   gyr: %6ld %6ld %6ld   acc: %6ld %6ld %6ld\n", gyr_value[0], gyr_value[1], gyr_value[2], acc_value[0], acc_value[1], acc_value[2]);
             break;
         }
 

@@ -2894,6 +2894,9 @@ LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Get_X_Axes(int32_t *Acceleration)
   {
     return LSM6DSV16X_ERROR;
   }
+  Acceleration[0] = data_raw.i16bit[0];
+  Acceleration[1] = data_raw.i16bit[1];
+  Acceleration[2] = data_raw.i16bit[2];
   return LSM6DSV16X_OK;
 
   float sensitivity = Convert_X_Sensitivity(acc_fs);
@@ -2954,6 +2957,10 @@ LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Get_G_Axes(int32_t *AngularVeloci
   {
     return LSM6DSV16X_ERROR;
   }
+  AngularVelocity[0] = data_raw.i16bit[0];
+  AngularVelocity[1] = data_raw.i16bit[1];
+  AngularVelocity[2] = data_raw.i16bit[2];
+
   return LSM6DSV16X_OK;
 
   float sensitivity = Convert_G_Sensitivity(gyro_fs);
