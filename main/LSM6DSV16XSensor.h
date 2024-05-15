@@ -185,6 +185,7 @@ public:
   LSM6DSV16XStatusTypeDef Get_G_DRDY_Status(uint8_t *Status);
   LSM6DSV16XStatusTypeDef Set_G_Power_Mode(uint8_t PowerMode);
   LSM6DSV16XStatusTypeDef Set_G_Filter_Mode(uint8_t LowHighPassFlag, uint8_t FilterMode);
+  LSM6DSV16XStatusTypeDef Read_FIFO_Data(uint16_t max, void *records, uint16_t *count);
 
   LSM6DSV16XStatusTypeDef Get_Temp_ODR(float *Odr);
   LSM6DSV16XStatusTypeDef Set_Temp_ODR(float Odr);
