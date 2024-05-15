@@ -172,6 +172,7 @@ public:
   LSM6DSV16XStatusTypeDef Enable_X_User_Offset();
   LSM6DSV16XStatusTypeDef Disable_X_User_Offset();
   LSM6DSV16XStatusTypeDef Set_X_User_Offset(float x, float y, float z);
+  LSM6DSV16XStatusTypeDef FIFO_Set_Compression_Algo(lsm6dsv16x_fifo_compress_algo_t CompressionAlgorithm);
 
   LSM6DSV16XStatusTypeDef Enable_G();
   LSM6DSV16XStatusTypeDef Disable_G();

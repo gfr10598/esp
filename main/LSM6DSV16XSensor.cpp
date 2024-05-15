@@ -3147,6 +3147,16 @@ LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Get_Timestamp(uint32_t *timestamp
 }
 
 /**
+ * @brief  Set the LSM6DSV16X FIFO gyroscope decimation
+ * @param  Decimation FIFO gyroscope decimation
+ * @retval 0 in case of success, an error code otherwise
+ */
+LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Set_Compression_Algo(lsm6dsv16x_fifo_compress_algo_t CompressionAlgorithm)
+{
+  return (LSM6DSV16XStatusTypeDef)lsm6dsv16x_fifo_compress_algo_set(&reg_ctx, CompressionAlgorithm);
+}
+
+/**
  * @brief  Enable the LSM6DSV16X gyroscope sensor
  * @retval 0 in case of success, an error code otherwise
  */
