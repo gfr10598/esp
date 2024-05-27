@@ -3153,6 +3153,7 @@ LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Get_Timestamp(uint32_t *timestamp
  */
 LSM6DSV16XStatusTypeDef LSM6DSV16XSensor::FIFO_Set_Compression_Algo(lsm6dsv16x_fifo_compress_algo_t CompressionAlgorithm)
 {
+  // TODO - lsm6dsv16x_fifo_compress_algo_real_time_set(&reg_ctx, PROPERTY_ENABLE);
   return (LSM6DSV16XStatusTypeDef)lsm6dsv16x_fifo_compress_algo_set(&reg_ctx, CompressionAlgorithm);
 }
 
