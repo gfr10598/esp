@@ -18,7 +18,7 @@ Are UDP packets delivered over WiFi in order?
 #include <stdio.h>
 #include <string>
 
-#include "Arduino.h"
+// #include "Arduino.h"
 
 #include "driver/gpio.h"
 
@@ -34,8 +34,6 @@ QueueHandle_t data_queue = xQueueCreate(128, 512);
 const char *ssid = "TheBelfry";
 const char *password = "GrandsireCaters";
 
-IPAddress local_ip(192, 168, 5, 5);
-
 void loop()
 {
 }
@@ -48,10 +46,8 @@ void output_pin(int pin)
     gpio_config_t io_conf = {
         .pin_bit_mask = 1ull << pin,
         .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
     };
+    gpio_config(&io_conf);
 }
 
 void enable_quic()
@@ -62,25 +58,29 @@ void enable_quic()
 
 void set_led(int on)
 {
-    gpio_set_level(GPIO_NUM_7, on);
+    gpio_set_level(GPIO_NUM_13, on);
 }
-
-int led = 0;
 
 extern "C" void app_main()
 {
-    initArduino();
+    // initArduino();
     printf("Hello, world!\n");
 
     enable_quic();
-    output_pin(7);
+    output_pin(21);
+    gpio_set_level(GPIO_NUM_21, 1); // neopixel power
+    output_pin(33);
+    gpio_set_level(GPIO_NUM_33, 1); // neopixel data
 
     set_led(1);
 
-    while (1)
+    for (int cnt = 0; cnt < 10000; cnt++)
     {
         // With delay of 9, we get occasional dropouts.
         vTaskDelay(100 / portTICK_PERIOD_MS);
-        set_led(led = !led);
+        set_led(cnt % 2);
+        printf("%d\n", cnt);
     }
+    while (1)
+        ;
 }
