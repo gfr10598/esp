@@ -18,9 +18,11 @@ Are UDP packets delivered over WiFi in order?
 #include <stdio.h>
 #include <string>
 
-// #include "Arduino.h"
-
 #include "driver/gpio.h"
+
+#include "esp_wifi.h"
+
+#include "nvs_flash.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,9 +33,24 @@ Are UDP packets delivered over WiFi in order?
 QueueHandle_t data_queue = xQueueCreate(128, 512);
 
 // Set these to your desired credentials.
-const char *ssid = "TheBelfry";
-const char *password = "GrandsireCaters";
+const uint8_t ssid[] = "TheBelfry";
+const uint8_t password[] = "GrandsireCaters";
 
+void init_wifi()
+{
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = *ssid,
+            .password = *password,
+        },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+}
 void loop()
 {
 }
@@ -73,6 +90,9 @@ extern "C" void app_main()
     gpio_set_level(GPIO_NUM_33, 1); // neopixel data
 
     set_led(1);
+
+    ESP_ERROR_CHECK(nvs_flash_init());
+    init_wifi();
 
     for (int cnt = 0; cnt < 10000; cnt++)
     {
