@@ -1,20 +1,17 @@
 /*
-We can send 1kB UDP packets in about 1.7 msec per packet.
-Thus, we can get very very low latency, and only need about 7% of the CPU,
-and perhaps 10% of the sustained network throughput.
+We can send UDP packets at about 100 pkts / sec.  More than that, and we see ENOMEM errors
+when there are clients attached.
 
-If we also listen for UDP packets from the clients, we can retransmit
-packets that are lost.  The clients can send notices when they are missing
-packets, using packet sequence numbers.  The server can keep a buffer of the
-last 20 packets or so, and retransmit them when requested.  Probably it
-should just back up and resume transmitting from the earliest missing packet.
+If we collect 40-45 records per batch, that works out to 10-12 msec, which works fine.
+If we want extra bandwidth for something else, we can reduce the data packet rate.
 
-Clients might well miss the same packets, so this might not cost much.
-One question is how long a client should wait before requesting a missing packet.
-Are UDP packets delivered over WiFi in order?
+At 100 pkts/sec, the packets are around 400 bytes + a count field.
 
+We probably need a retransimit window and protocol, so we may want to back off to 50 pkts/sec
+and 90 records / packet, and allow retransmission up to perhaps 50 packets in the past.
 */
 
+#include <optional>
 #include <stdio.h>
 #include <string>
 
@@ -34,6 +31,9 @@ Are UDP packets delivered over WiFi in order?
 #include <lwip/sockets.h>
 #include <esp32-hal.h>
 
+#include "base64_encode.hpp"
+#include "LSM6DSV16XSensor.h"
+
 // Set these to your desired credentials.
 const uint8_t ssid[] = "TheBelfry";
 const uint8_t password[] = "GrandsireCaters";
@@ -46,13 +46,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     if (event_id == WIFI_EVENT_AP_STACONNECTED)
     {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        ESP_LOGI(SOFT_AP_TAG, "station " MACSTR " join, AID=%d",
+        ESP_LOGW(SOFT_AP_TAG, "station " MACSTR " join, AID=%d",
                  MAC2STR(event->mac), event->aid);
     }
     else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
     {
         wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        ESP_LOGI(SOFT_AP_TAG, "station " MACSTR " leave, AID=%d, reason=%d",
+        ESP_LOGW(SOFT_AP_TAG, "station " MACSTR " leave, AID=%d, reason=%d",
                  MAC2STR(event->mac), event->aid, event->reason);
     }
 }
@@ -163,19 +163,127 @@ void set_led(int on)
 {
     gpio_set_level(GPIO_NUM_13, on);
 }
+
 long unsigned blast(int sock, char *msg)
 {
     unsigned long start = micros();
     // Send a UDP packet to the broadcast address.
     ssize_t sent = udp_client_send_message(sock, "192.168.4.255", 3333, msg);
-    if (sent < 0)
+    int tries = 0;
+    while (sent < 0)
     {
-        return sent;
+        vTaskDelay(5);
+        sent = udp_client_send_message(sock, "192.168.4.255", 3333, msg);
+        tries++;
+    }
+    if (tries > 3)
+    {
+        printf("Tries: %d\n", tries);
     }
     return micros() - start;
 }
 
+#define FIFO_SAMPLE_THRESHOLD 20
+#define FLASH_BUFF_LEN 8192
+// If we send the raw data to the other processor for output to WiFi,
+// we can likely keep up with 3840 samples/sec.
+#define SENSOR_ODR 1920
+
+LSM6DSV16XSensor init_lsm()
+{
+    // Initialize i2c.
+    Wire.begin(3, 4, 1000000);
+    pinMode(7, OUTPUT);
+    digitalWrite(7, HIGH);
+
+    printf("I2C initialized\n");
+    LSM6DSV16XSensor LSM(&Wire);
+    printf("LSM created\n");
+
+    if (LSM6DSV16X_OK != LSM.begin())
+    {
+        printf("LSM.begin() Error\n");
+        while (1)
+            ;
+    }
+    int32_t status = 0;
+
+    // This doesn't seem to do anything - not seeing any compressed data.
+    status |= LSM.FIFO_Set_Compression_Algo(LSM6DSV16X_CMP_16_TO_1);
+    status |= LSM.Set_G_FS(1000); // Need minimum of 600 dps
+    status |= LSM.Set_X_FS(16);   // To handle large impulses from clapper.
+    status |= LSM.Set_X_ODR(SENSOR_ODR);
+    status |= LSM.Set_G_ODR(SENSOR_ODR);
+    status |= LSM.Set_Temp_ODR(LSM6DSV16X_TEMP_BATCHED_AT_1Hz875);
+
+    // Set FIFO to timestamp data at 20 Hz
+    status |= LSM.FIFO_Enable_Timestamp();
+    status |= LSM.FIFO_Set_Timestamp_Decimation(LSM6DSV16X_TMSTMP_DEC_32);
+    status |= LSM.FIFO_Set_Mode(LSM6DSV16X_BYPASS_MODE);
+
+    // Configure FIFO BDR for acc and gyro
+    status |= LSM.FIFO_Set_X_BDR(SENSOR_ODR);
+    status |= LSM.FIFO_Set_G_BDR(SENSOR_ODR);
+
+    // Set FIFO in Continuous mode
+    status |= LSM.FIFO_Set_Mode(LSM6DSV16X_STREAM_MODE);
+
+    status |= LSM.Enable_G();
+    status |= LSM.Enable_X();
+
+    if (status != LSM6DSV16X_OK)
+    {
+        printf("LSM6DSV16X Sensor failed to configure FIFO\n");
+        while (1)
+            ;
+    }
+    else
+        printf("LSM enabled\n");
+    return LSM;
+}
+
+struct Tag
+{
+    unsigned int _unused : 1;
+    unsigned int cnt : 2;
+    unsigned int tag : 5;
+};
+
+int read_many(LSM6DSV16XSensor &LSM, uint16_t avail, void *records)
+{
+    uint16_t actual;
+    if (LSM6DSV16X_OK != LSM.Read_FIFO_Data(avail, records, &actual))
+    {
+        printf("LSM6DSV16X Sensor failed to read FIFO data\n");
+        while (1)
+            ;
+    }
+    return actual;
+}
+
+std::string encode(void *records, int actual)
+{
+    char output[actual * 10 + 4];
+    encode_base64((unsigned char *)records, actual * 7, (unsigned char *)output);
+    return std::string(output); // Allocates on heap.
+}
+
+int wait_for(LSM6DSV16XSensor &lsm, int n)
+{
+    // Wait until there are FIFO_SAMPLE_THRESHOLD records in the FIFO.
+    uint16_t avail = 0;
+    for (int status = lsm.FIFO_Get_Num_Samples(&avail);
+         (status == LSM6DSV16X_OK) && (avail < n);
+         status = lsm.FIFO_Get_Num_Samples(&avail))
+    {
+        vTaskDelay(1); // Wait the minimum interval.
+    }
+    return avail;
+}
+
 char msg[2049];
+char records[64 * 7];
+int records_offset = 0;
 
 extern "C" void app_main()
 {
@@ -192,6 +300,9 @@ extern "C" void app_main()
 
     ESP_ERROR_CHECK(nvs_flash_init());
     init_wifi();
+
+    LSM6DSV16XSensor lsm = init_lsm();
+    unsigned char records[32 * 7];
 
     esp_log_level_set("*", ESP_LOG_WARN);
 
@@ -210,30 +321,35 @@ extern "C" void app_main()
     }
 
     unsigned long last = 0;
-    for (int cnt = 0; cnt < 100000; cnt++)
+    int bytes_sent = 0;
+    int msg_sent = 0;
+    int blast_time = 0;
+    while (1)
     {
-        // Reusing the socket, and sending 2048 byte messages, we can send 90 messages/sec.
-        // With a higher message rate, we start getting send errors.
-        vTaskDelay(11 / portTICK_PERIOD_MS);
-        ssize_t blast_time = blast(sock, msg);
-        if (blast_time < 0)
+        // This call should make many vTaskDelay(1) calls.
+        int avail = wait_for(lsm, 20);
+        if (avail > 50)
         {
-            if (errno == ENOMEM)
-                ESP_LOGE(SOFT_AP_TAG, "ENOMEM");
-            else
-                ESP_LOGE(SOFT_AP_TAG, "Error occurred during sending: errno %d", errno);
+            ESP_LOGW(SOFT_AP_TAG, "actual: %d", avail);
         }
-
-        if (cnt % 100 == 0)
+        int actual = read_many(lsm, avail, (void *)(records + records_offset * 7));
+        records_offset += actual;
+        if (records_offset > 32)
         {
-            set_led(cnt % 200);
+            std::string encoded = encode(records, records_offset);
+            char msg[1024];
+            sprintf(msg, "%d %s", msg_sent % 100, encoded.c_str());
+            blast_time = blast(sock, msg);
+            bytes_sent += encoded.size();
+            msg_sent++;
             unsigned long now = micros();
-            unsigned long avg = (now - last) / 100;
-            unsigned long throughput = 2000000 / avg; // kB/sec
+            if (msg_sent % 10 == 0)
+            {
+                set_led((msg_sent / 100) % 2);
+                printf("sent %d bytes for %d records over interval of %lu usecs\n", encoded.size(), records_offset, now - last);
+            }
+            records_offset = 0;
             last = now;
-            timeval datetime;
-            gettimeofday(&datetime, NULL);
-            printf("blast at %lld took %d usecs, average elapsed: %lu throughput: %lu kB/sec\n", datetime.tv_sec, blast_time, avg, throughput);
         }
     }
     // Close socket
