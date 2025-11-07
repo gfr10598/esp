@@ -64,7 +64,8 @@ so there is no real penalty for the larger size.  They also have a compatible [2
 which is a bit more cost effective than the SparkFun, with dimensions 1.9" x 2.3" x 0.29" - just a little smaller than the Metro board.
 
 In addition, the components have to be firmly attached to the headstock, either with magnets or with foam tape.
-- [Rectangular Magnets 45 lbs Force 1.57" x 0.53" x 0.20"](https://www.amazon.com/dp/B0BKY6QYTT)
+- [Rectangular Magnets 45 lbs Force 1.57" x 0.53" x 0.20"](https://www.amazon.com/dp/B0BKY6QYTT) OR
+- [Rectangular Epoxy Coated Magnet](https://www.amazon.com/dp/B0BMPSGB72)
 - [Double Sided Tape Heavy Duty Foam Tape, 3M VHB Tape](https://www.amazon.com/dp/B0DS8DGJ19)
 If magnets are used, the same foam tape can be used to attach the components to the magnets, except for the sensor,
 which should be glued to the magnet (or headstock), to minimize acoustic noise coupling from the air. (It may be that
