@@ -48,7 +48,7 @@ The original hardware used for this is:
 <img width="262" height="110" alt="image" src="https://github.com/user-attachments/assets/20841a2e-97d8-45c2-a77d-a050b36962be" />
 
 I am currently working on a more capable hardware configuration that supports local storage and better power management.  
-The main change is adding a microSD card, by switching to a Sparkfun Think Plus.
+The main change is adding a microSD card, by switching to a Sparkfun Thing Plus.
 
 - [SparkFun Thing Plus - ESP32-S3](https://www.sparkfun.com/sparkfun-thing-plus-esp32-s3.html)
 - [SparkFun Micro 6DoF IMU Breakout - LSM6DSV16X (Qwiic)](https://www.sparkfun.com/sparkfun-micro-6dof-imu-breakout-lsm6dsv16x-qwiic.html) - same as above
@@ -72,6 +72,7 @@ the tape is perfectly adequate, but this needs to be tested).
 A small amount of butyl rubber between the magnet and headstock will eliminate any rocking caused by non-flat surfaces.
 
 A tape such as [this](https://www.amazon.com/dp/B0DXL6FV9P) applied over the sensor may further help reduce acoustic noise, but this has
-not been tested.
+not been tested.  It also may improve performance to secure a suitable size bottle cap over the sensor, attached directly to the headstock
+with butyl rubber.  These ideas need to be evaluated in actual belfry conditions with all bells ringing.
 
 
